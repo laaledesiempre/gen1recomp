@@ -71,7 +71,7 @@ Renderer.UPRIGHT_MARGIN = 160
 -- for both axes makes the other axis land on a fractional, stretched count.
 -- Keep separate dpiX/dpiY so each GB pixel covers fitScale() physical pixels
 -- on BOTH axes (square).
-local function displayMetrics()
+local function computeMetrics()
   local ww, wh = GameViewport.dimensions()
   local pw, ph = ww, wh
   pw, ph = GameViewport.pixelDimensions()
@@ -93,6 +93,29 @@ local function displayMetrics()
     vx, vy, pw, ph, cut = sx, sy, sw, sh, true
   end
   return ww, wh, pw, ph, dpiX, dpiY, vx, vy, cut
+end
+
+-- Memoized per frame.  fitScale/drawScaleX/drawScaleY/worldViewSize/
+-- frameRects each used to recompute this on every call -- a couple dozen
+-- times per frame in the overworld -- even though the inputs cannot change
+-- within a frame: GameViewport.begin() (which bumps frameSeq) runs at the top
+-- of every Game:draw/Game2:draw, an OS resize is pumped between frames, and a
+-- layout mod's rect only applies in begin().  Two cases still compute fresh:
+-- before the first begin (frameSeq 0: headless boot, no loop running) and
+-- inside a pushed playfield, where Playfield.cutout must answer nil rather
+-- than the cached outer-frame cutout.
+local metricsSeq = 0
+local mww, mwh, mpw, mph, mdpiX, mdpiY, mvx, mvy, mcut
+local function displayMetrics()
+  local seq = GameViewport.frameSeq or 0
+  if seq == 0 or Playfield.entered then
+    return computeMetrics()
+  end
+  if seq ~= metricsSeq then
+    mww, mwh, mpw, mph, mdpiX, mdpiY, mvx, mvy, mcut = computeMetrics()
+    metricsSeq = seq
+  end
+  return mww, mwh, mpw, mph, mdpiX, mdpiY, mvx, mvy, mcut
 end
 
 local function positionLift(ph, contentPx, dpiY, cut)
