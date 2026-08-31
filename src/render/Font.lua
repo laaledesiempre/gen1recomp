@@ -42,6 +42,17 @@ local state
 local loadedFrom
 local currentFrame = 1
 
+-- Font.encode's memo, keyed on the string.  The glyph mapping is a pure
+-- function of the string and the loaded font state (charmap + ttf.tiles,
+-- both rebuilt only in Font.load), and every caller -- Font.draw,
+-- Font.width, TextBox, BattleState:startMessage, Chrome -- only reads the
+-- returned codes table, so one shared table per string is safe: a menu
+-- redraws the same rows every frame and used to re-tokenize each one.
+-- A size cap with a full clear keeps a long session of distinct strings
+-- (HP numbers mid-animation, entered names) from growing it without bound.
+local encodeCache, encodeCacheSize = {}, 0
+local ENCODE_CACHE_MAX = 1024
+
 -- the two vanilla pages as the legacy def spells them, so a cache that
 -- predates the pages table still loads and a mod that registers only one
 -- page replaces just that one
@@ -102,6 +113,7 @@ end
 
 function Font.load(data)
   loadedFrom = data
+  encodeCache, encodeCacheSize = {}, 0
   local def = data.font
   state = { def = def, pages = {}, order = {}, byFirstByte = {} }
   for id, page in pairs(pagesOf(def)) do
@@ -426,10 +438,13 @@ function Font.spansFitting(spans, budget)
 end
 
 -- Convert a text string into a list of glyph codes.  Unknown characters
--- render as space (and are reported once).
+-- render as space (and are reported once).  Memoized per string (see
+-- encodeCache above): the shared table must stay read-only to callers.
 local reported = {}
 function Font.encode(text)
-  local codes = {}
+  local codes = encodeCache[text]
+  if codes then return codes end
+  codes = {}
   for _, span in ipairs(Font.split(text)) do
     local code = span.code
     if not code then
@@ -442,6 +457,11 @@ function Font.encode(text)
     end
     codes[#codes + 1] = code
   end
+  if encodeCacheSize >= ENCODE_CACHE_MAX then
+    encodeCache, encodeCacheSize = {}, 0
+  end
+  encodeCache[text] = codes
+  encodeCacheSize = encodeCacheSize + 1
   return codes
 end
 
