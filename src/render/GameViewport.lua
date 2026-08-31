@@ -11,6 +11,10 @@ local Viewport = {
   canvas = nil,
   generation = nil,
   frameActive = false,
+  -- bumped by begin() (and reset()) so per-frame memoizers downstream --
+  -- Renderer's displayMetrics -- can tell one frame from the next without
+  -- re-querying the OS.  0 means "no frame begun yet".
+  frameSeq = 0,
 }
 
 local function finite(value)
@@ -51,6 +55,7 @@ local function sameSize(canvas, w, h)
 end
 
 function Viewport.begin(generation)
+  Viewport.frameSeq = Viewport.frameSeq + 1
   local w, h, pw, ph, dpiX, dpiY = realMetrics()
   local context = {
     width = w, height = h, pixelWidth = pw, pixelHeight = ph,
@@ -172,6 +177,9 @@ function Viewport.finish(game)
 end
 
 function Viewport.reset()
+  -- the rect/full this frame's memoizers may have cached against is gone;
+  -- bump so nothing reads stale viewport geometry after teardown
+  Viewport.frameSeq = Viewport.frameSeq + 1
   Viewport.frameActive = false
   Viewport.rect = nil
   Viewport.full = nil
